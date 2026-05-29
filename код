@@ -1,246 +1,976 @@
+# =========================================================
+# UDD TEAM BOT + TELETHON USERBOT
+# =========================================================
+#
+# ЧТО ДЕЛАЕТ:
+#
+# 1. Telegram Bot -> интерфейс пользователю
+# 2. Telethon Userbot -> пишет @MTcloud_bot
+# 3. Получает APPLE ID
+# 4. Пересылает пользователю
+#
+# =========================================================
+
+# =========================================================
+# АВТОУСТАНОВКА
+# =========================================================
+
+import subprocess
+import sys
+
+packages = [
+    "python-telegram-bot==20.7",
+    "telethon"
+]
+
+for package in packages:
+
+    try:
+
+        __import__(package.split("==")[0].replace("-", "_"))
+
+    except:
+
+        subprocess.check_call([
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            package
+        ])
+
+# =========================================================
+# IMPORTS
+# =========================================================
+
+import asyncio
 import json
-import urllib.request
-import urllib.error
-import sqlite3
 import os
-from time import sleep
+import random
+import string
+import threading
 
-# ===== КОНФИГУРАЦИЯ =====
-TOKEN = "8424467040:AAGW4g40m7DVQIu5XpBpk1d4uoZ_wuLlYiY"
-CRYPTO_TOKEN = "57687:AAnmYI196GY9RWu9QhaV3Pfjzg9aL7r52g6" 
-DB = "bot.db"
+from telethon import TelegramClient
 
-# Путь к изображениям из переменной среды или стандартный путь
-SHARED_DIR = os.environ.get("SHARED_DIR", "/app/shared")
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update
+)
 
-# ===== БАЗА ДАННЫХ =====
-def init_db():
-    conn = sqlite3.connect(DB)
-    conn.execute("CREATE TABLE IF NOT EXISTS cart (chat_id INTEGER, item TEXT)")
-    conn.commit()
-    conn.close()
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes
+)
 
-def add_to_cart(chat_id, item):
-    conn = sqlite3.connect(DB)
-    conn.execute("INSERT INTO cart VALUES (?,?)", (chat_id, item))
-    conn.commit()
-    conn.close()
+# =========================================================
+# НАСТРОЙКИ
+# =========================================================
 
-def get_cart(chat_id):
-    conn = sqlite3.connect(DB)
-    cur = conn.cursor()
-    cur.execute("SELECT item FROM cart WHERE chat_id=?", (chat_id,))
-    items = [r[0] for r in cur.fetchall()]
-    conn.close()
-    return items
+BOT_TOKEN = "8894192971:AAEVa2hU7kC4DhatsMHnFfhT5NS4gT8tk4U"
 
-def clear_cart(chat_id):
-    conn = sqlite3.connect(DB)
-    conn.execute("DELETE FROM cart WHERE chat_id=?", (chat_id,))
-    conn.commit()
-    conn.close()
+API_ID = 38615135
+API_HASH = "3c4f5e65f40e66c1c580edf599a553d2"
 
-# ===== ВСЕ ТОВАРЫ (ПОЛНЫЙ СПИСОК) =====
-BDSM_ITEMS = {
-    "pyl": ("Мефедрон Пыльца 1г", 1890.0, "Мелкие эйфоричные кристаллы высокого качества для яркого отдыха."), 
-    "kris": ("Альфа-ПВП Кристалл 1г", 1690.0, "Мощный стимулятор в блестящих кристаллах для максимальной бодрости."), 
-    "per": ("Кокаин Перу 0.5г", 4090.0, "Премиальный импортный продукт с мягким эффектом и чистым составом."),
-    "ek": ("Кокаин Эквадор 0.5г", 4190.0, "Чистейший первый сорт для уверенности и отличного настроения."), 
-    "me": ("Метамфетамин 1г", 2390.0, "Экстремальное ускорение и бодрость для самых длинных дистанций."), 
-    "gor": ("Шишки Gorilla Glue 1г", 1690.0, "Энергичный заряд позитива с мягким расслаблением на выходе."),
-    "ak": ("Шишки АК-47 1г", 1790.0, "Легендарный сорт для глубокой релаксации и снятия напряжения."), 
-    "op": ("Шишки Opium 1г", 1890.0, "Ягодный вкус и сливочный оттенок для абсолютного счастья."), 
-    "ga": ("VHQ Гашиш 1г", 1790.0, "Натуральный продукт ледяной экстракции с плотным дымом."),
-    "gold": ("Грибы Golden Teacher 1г", 790.0, "Проводник в мир ярких красок и глубоких размышлений."), 
-    "mik": ("Mix Марихуана 1г", 1890.0, "Убойная смесь разных сортов для сильного эффекта."), 
-    "aksan": ("Алпразолам Xanax 1г", 990.0, "Эффективное средство против тревоги для спокойного сна."),
-    "zaksan": ("Золомакс Xanax 1г", 990.0, "Быстрое избавление от стресса и полное внутреннее спокойствие."), 
-    "tra": ("Трамадол 50-100мг", 2690.0, "Надежное обезболивающее средство для возвращения контроля над собой.")
-}
-HAPPINESS_ITEMS = {
-    "white": ("Шишки White Widow 1г", 2690.0, "Знаменитый мощный сорт с невероятным ароматом для гурманов."), 
-    "ice": ("Гаш Ice-O-Lator 1г", 2190.0, "Премиальный изолятор, который растопчет любую трезвость надолго."),
-    "muka": ("Меф Мука VHQ 1г", 2190.0, "Чистый белоснежный продукт без запаха для страстных ощущений."), 
-    "mdm": ("MDMA VHQ 1г", 2890.0, "Чистые кристаллы для любви, эмпатии и прекрасного настроения.")
-}
-PAV_ITEMS = {
-    "colombia": ("Кокаин Colombia MQ 0.5г", 5890.0, "Белые хрустящие камни для чистой стимуляции и удовольствия."), 
-    "meta": ("Метадон 1г", 2390.0, "Мощный лабораторный препарат для опытных пользователей, высокая очистка."), 
-    "keta": ("Кетамин 1г", 1990.0, "Диссоциативное вещество в виде мелкого сахара для погружения."),
-    "pav_muka": ("А-ПВП Мука 1г", 1190.0, "Сильнейший стимулятор для общения, энергии и сексуального возбуждения."), 
-    "pav_kristall": ("А-ПВП Кристалл 1г", 1190.0, "Кристаллическая форма для мощного прилива сил и эйфории."),
-    "amfa": ("Амфетамин VHQ 1г", 2490.0, "Высококачественный продукт для длительной стимуляции и бодрости тела."), 
-    "veip": ("Vape THC 7мл", 1290.0, "Жидкость для вейпа без запаха для скрытого использования."), 
-    "boshka": ("Бошки HQ NL 1г", 1590.0, "Качественный продукт для глубокого расслабления и снятия стресса."),
-    "boshka_amnesia": ("Бошки Amnesia 1г", 1690.0, "Сативный сорт с цитрусовым вкусом для бодрого дня."), 
-    "boshka_hk": ("Бошки HQ AK-48 1г", 1490.0, "Классический землистый вкус и продолжительный отдых для разума.")
-}
-LIDERA_ITEMS = {
-    "premium_kristall": ("Premium Crystal VHQ+ 1г", 1890.0, "Экстремально сильная альфа для тех, кто ищет максимум."), 
-    "premium_me": ("Premium Mephedrone Crystal 1г", 2190.0, "Крупные кристаллы эликсира любви от профессиональных химиков."),
-    "premium_am": ("Premium Амфетамин 1г", 2590.0, "Классическая технология производства для безопасной и чистой энергии."),
-    "muka_premium": ("Мука Premium Hq 1г", 1990.0, "Лучший продукт на рынке с многоступенчатой системой очистки."),
-    "premium_ga": ("Premium Гашиш 1г", 2190.0, "Мягкий испанский гашиш с ароматом хвои и леса."), 
-    "premium_shish": ("Premium Шишки WMI 1г", 2290.0, "Экзотический аромат сандала и высокий уровень ТГК."),
-    "premium_ex": ("Premium Экстази 330мг", 799.0, "Чистый MDMA без лишних примесей для ярких вечеринок."), 
-    "premium_ge": ("Premium Героин 1г", 3290.0, "Афганский продукт высочайшего качества для ценителей классики.")
-}
-YODA_ITEMS = {
-    "alpha_kris": ("Альфа Кристаллы 1г", 1990.0, "Светлые кристаллы для ясной мысли и быстрой реакции."), 
-    "me_kris": ("Мефедрон Кристаллы 1г", 22590.0, "Твердая структура для эйфории, бодрости и легкого общения."), 
-    "eifo": ("Мефедрон Мука 1г", 1890.0, "Классическая мука для мягкого подъема настроения и эмпатии."),
-    "me_krist": ("Мефедрон Кристаллы ICE 1г", 2090.0, "Сияющий лед для самых ярких ощущений и связи."), 
-    "ext": ("Экстази 360мг", 1090.0, "Цветная энергия в капсулах для ритма и танцев."), 
-    "ko": ("Кокаин 0.5г", 6250.0, "Тонкий белый снег для уверенности и острого внимания."),
-    "shish": ("Шишки VHQ 1г", 2290.0, "Сладкие ароматные шишки высшего качества для ценителей."), 
-    "ga_yoda": ("Гашиш Ice-O-Lator 1г", 1990.0, "Темная смола для спокойствия и внутреннего баланса."), 
-    "amf_yoda": ("Амфетамин 1г", 2890.0, "Белый порошок для бдительности и огромной внутренней силы."),
-    "meta_yoda": ("Метадон 1г", 2490.0, "Мраморно-белые кристаллы чистотой более 98 процентов."), 
-    "liri300": ("Лирика 300мг", 1390.0, "Капсулы для баланса нервной системы и тишины мыслей."),
-    "liri400": ("Лирика 400мг", 1490.0, "Повышенная дозировка для глубокого спокойствия и релаксации."), 
-    "liri600": ("Лирика 600мг", 1690.0, "Максимальная концентрация для полного устранения тревожных состояний.")
-}
-YAMASAKI_ITEMS = {
-    "vv": ("Гашиш Ice-O-Lator 1г", 2290.0, "Особенный продукт для самого искушенного потребителя."), 
-    "lm": ("Гаш La Mousse 1г", 1329.0, "Новаторский продукт, который подарит вам широкую улыбку."), 
-    "mo": ("Гаш Morocco 1г", 1789.0, "Горный марокканский опыт, проверенный многими поколениями мастеров."),
-    "vh": ("Шишки VHQ 1г", 2390.0, "Премиальное качество для достижения ваших самых смелых целей."), 
-    "ak_y": ("Шишки АК-47 1г", 1590.0, "Точный выстрел в ваше настроение для бодрого вечера."), 
-    "ap_y": ("Кокаин APPLE 0.5г", 5390.0, "Дорогая легкость и мгновенный апгрейд вашего состояния."),
-    "mers": ("Кокаин Mercedes 0.5г", 5690.0, "Стабильный люкс и уверенность в каждом вашем движении."), 
-    "me_y": ("Метамфетамин 1г", 2390.0, "Режим максимальной четкости и отсутствия лишних тормозов."), 
-    "am_y": ("Амфетамин 1г", 2490.0, "Режим максимальной отдачи, когда нужно выжать из дня всё."),
-    "ap2_y": ("А-ПВП", 1290.0, "Чистые кристаллы с мощным эффектом с первого касания.")
-}
-TSUM_ITEMS = {
-    "ek_t": ("Кокаин ЭКВАДОР 0.5г", 6890.0, "Жемчужный блеск и бесконечная радость в одном пакете."), 
-    "ar": ("Кокаин АРГЕНТИНА 0.5г", 7320.0, "Идеальный баланс эйфории и стимуляции для роскошной вечеринки."), 
-    "pr": ("Меф PREMIUM 1г", 2890.0, "Огромные кристаллы XXL размера с невероятным эффектом."),
-    "ezh": ("Меф ЕЖИКИ 1г", 2390.0, "Знаменитая визитная карточка нашего магазина, проверенная временем."), 
-    "pro": ("Меф PROSECCO 1г", 2490.0, "Могучие кристаллы с потрясающим эффектом для праздника."), 
-    "ma": ("Крэк 1г", 10290.0, "Огромные кристаллы крэка для тех, кто ценит мощность."), 
-    "apk": ("А-PVP Кристаллы 1г", 1310.0, "Качественный синтез без побочных эффектов, только чистый драйв."),
-    "apkr": ("А-PVP Кристаллы 2 1г", 1330.0, "Зеленые кристаллы для открытия совершенно новых горизонтов."), 
-    "apkri": ("А-PVP Кристаллы 3 1г", 1360.0, "Синяя форма для получения уникальных и новых ощущений."), 
-    "gr": ("Грибы.b+ 1г", 849.0, "Природный экстракт для спокойного отдыха в знакомой обстановке."),
-    "ga_t": ("Гашиш I-o-L NEYMAR", 2090.0, "Эластичный и мягкий продукт, напоминающий мед по консистенции."), 
-    "shi": ("Шишки CUSH 1г", 1690.0, "Индика доминант для глубокого погружения в мир релакса."), 
-    "shish_t": ("Шишки Critical Cush 1г", 1790.0, "Высокий уровень ТГК для снятия любых неприятных мыслей.")
-}
+TARGET_BOT = "MTcloud_bot"
 
-ALL_PRODUCTS = {**BDSM_ITEMS, **HAPPINESS_ITEMS, **PAV_ITEMS, **LIDERA_ITEMS, **YODA_ITEMS, **YAMASAKI_ITEMS, **TSUM_ITEMS}
+DATA_FILE = "users.json"
 
-# ===== API CRYPTOBOT =====
-def crypto_api(method, params=None):
-    url = f"https://pay.cryptobot.it/api/{method}"
-    headers = {"Crypto-Pay-API-Token": CRYPTO_TOKEN, "Content-Type": "application/json"}
-    payload = json.dumps(params).encode("utf-8") if params else None
-    req = urllib.request.Request(url, data=payload, headers=headers, method="POST" if params else "GET")
+# =========================================================
+# TELETHON USERBOT
+# =========================================================
+
+userbot = TelegramClient(
+    "udd_user_session",
+    API_ID,
+    API_HASH
+)
+
+# =========================================================
+# DATABASE
+# =========================================================
+
+def load_data():
+
+    if not os.path.exists(DATA_FILE):
+        return {}
+
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_data(data):
+
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(
+            data,
+            f,
+            ensure_ascii=False,
+            indent=4
+        )
+
+
+users = load_data()
+
+
+def generate_tag():
+
+    letters = ''.join(
+        random.choices(
+            string.ascii_uppercase,
+            k=4
+        )
+    )
+
+    numbers = ''.join(
+        random.choices(
+            string.digits,
+            k=3
+        )
+    )
+
+    return f"{letters}{numbers}"
+
+
+def get_user(user_id):
+
+    user_id = str(user_id)
+
+    if user_id not in users:
+
+        users[user_id] = {
+
+            "registered": False,
+
+            "source": "",
+            "experience": "",
+            "time": "",
+
+            "cash": 0,
+            "profits": 0,
+            "locks": 0,
+
+            "mode": "От 11",
+
+            "tag": generate_tag()
+        }
+
+        save_data(users)
+
+    return users[user_id]
+
+# =========================================================
+# KEYBOARDS
+# =========================================================
+
+def kb_apply():
+
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "Подать заявку",
+                callback_data="apply"
+            )
+        ]
+    ])
+
+
+def kb_next():
+
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "Дальше",
+                callback_data="next_rules"
+            )
+        ]
+    ])
+
+
+def kb_source():
+
+    return InlineKeyboardMarkup([
+
+        [
+            InlineKeyboardButton(
+                "От друга",
+                callback_data="source_friend"
+            ),
+
+            InlineKeyboardButton(
+                "Реклама",
+                callback_data="source_ads"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "TT/Shorts/Rels",
+                callback_data="source_tt"
+            ),
+
+            InlineKeyboardButton(
+                "Другое",
+                callback_data="source_other"
+            )
+        ]
+    ])
+
+
+def kb_experience():
+
+    return InlineKeyboardMarkup([
+
+        [
+            InlineKeyboardButton(
+                "~2 года",
+                callback_data="exp_2"
+            ),
+
+            InlineKeyboardButton(
+                "~1 год",
+                callback_data="exp_1"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "~6 месяцев",
+                callback_data="exp_6"
+            ),
+
+            InlineKeyboardButton(
+                "Нет опыта",
+                callback_data="exp_0"
+            )
+        ]
+    ])
+
+
+def kb_time():
+
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "1-3ч",
+                callback_data="time_1"
+            ),
+
+            InlineKeyboardButton(
+                "3-6ч",
+                callback_data="time_2"
+            ),
+
+            InlineKeyboardButton(
+                "6+ч",
+                callback_data="time_3"
+            )
+        ]
+    ])
+
+
+def kb_confirm():
+
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "Подтвердить",
+                callback_data="confirm"
+            ),
+
+            InlineKeyboardButton(
+                "Отменить",
+                callback_data="cancel"
+            )
+        ]
+    ])
+
+
+def kb_main():
+
+    return InlineKeyboardMarkup([
+
+        [
+            InlineKeyboardButton(
+                "Получить APPLE ID",
+                callback_data="apple"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "Мой профиль",
+                callback_data="profile"
+            ),
+
+            InlineKeyboardButton(
+                "Настройки",
+                callback_data="settings"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "О проекте",
+                callback_data="about"
+            )
+        ]
+    ])
+
+
+def kb_back():
+
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "Назад",
+                callback_data="main"
+            )
+        ]
+    ])
+
+
+def kb_settings():
+
+    return InlineKeyboardMarkup([
+
+        [
+            InlineKeyboardButton(
+                "Ранги",
+                callback_data="ranks"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "Режим",
+                callback_data="mode"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "Мой тег",
+                callback_data="mytag"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "Назад",
+                callback_data="main"
+            )
+        ]
+    ])
+
+
+def kb_mode():
+
+    return InlineKeyboardMarkup([
+
+        [
+            InlineKeyboardButton(
+                "От 11",
+                callback_data="mode11"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "От 12",
+                callback_data="mode12"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "От 13",
+                callback_data="mode13"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "Назад",
+                callback_data="settings"
+            )
+        ]
+    ])
+
+# =========================================================
+# DELETE
+# =========================================================
+
+async def delete_old(query):
+
     try:
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except: return {"ok": False}
+        await query.message.delete()
+    except:
+        pass
 
-def create_invoice(amount_rub):
-    amount_usdt = round(amount_rub / 95, 2)
-    params = {"asset": "USDT", "amount": str(amount_usdt), "description": "Order"}
-    res = crypto_api("createInvoice", params)
-    return res["result"]["pay_url"] if res.get("ok") else None
+# =========================================================
+# TELETHON APPLE ID
+# =========================================================
 
-# ===== TELEGRAM API =====
-def api_call(method, data=None, files=None):
-    url = f"https://api.telegram.org/bot{TOKEN}/{method}"
-    if files:
-        boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
-        body = []
-        for k, v in data.items():
-            body.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode())
-        for k, filepath in files.items():
-            with open(filepath, "rb") as f:
-                content = f.read()
-            body.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"; filename=\"{os.path.basename(filepath)}\"\r\nContent-Type: image/jpeg\r\n\r\n".encode())
-            body.append(content + b"\r\n")
-        body.append(f"--{boundary}--\r\n".encode())
-        req = urllib.request.Request(url, data=b"".join(body), headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
-    else:
-        payload = json.dumps(data).encode("utf-8") if data else None
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-    
+async def get_apple_id():
+
     try:
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except: return {"ok": False}
 
-def send_msg(chat_id, text, markup=None):
-    return api_call("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "reply_markup": markup})
+        await userbot.send_message(
+            TARGET_BOT,
+            "/start"
+        )
 
-def send_product(chat_id, code):
-    if code not in ALL_PRODUCTS: return
-    name, price, desc = ALL_PRODUCTS[code]
-    photo_path = os.path.join(SHARED_DIR, f"{code}.jpg")
-    caption = f"<b>{name}</b>\n\n{desc}\n\n<b>Цена:</b> {price}₽"
-    markup = {"inline_keyboard": [[{"text":"➕ В корзину","callback_data":"add_"+code}],[{"text":"◀ Назад","callback_data":"shops"}]]}
-    
-    if os.path.exists(photo_path):
-        api_call("sendPhoto", data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML", "reply_markup": json.dumps(markup)}, files={"photo": photo_path})
+        await asyncio.sleep(2)
+
+        messages = await userbot.get_messages(
+            TARGET_BOT,
+            limit=1
+        )
+
+        if not messages:
+            return "Не удалось получить сообщение"
+
+        msg = messages[0]
+
+        clicked = False
+
+        if msg.buttons:
+
+            for row in msg.buttons:
+
+                for button in row:
+
+                    if (
+                        "Получить APPLE ID"
+                        in button.text
+                    ):
+
+                        await msg.click(
+                            text=button.text
+                        )
+
+                        clicked = True
+                        break
+
+        if not clicked:
+            return "Кнопка не найдена"
+
+        await asyncio.sleep(3)
+
+        result = await userbot.get_messages(
+            TARGET_BOT,
+            limit=1
+        )
+
+        if not result:
+            return "APPLE ID не получен"
+
+        return result[0]
+
+    except Exception as e:
+
+        return f"Ошибка: {e}"
+
+# =========================================================
+# /START
+# =========================================================
+
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    user = update.effective_user
+
+    data = get_user(user.id)
+
+    if not data["registered"]:
+
+        await update.message.reply_text(
+
+            "Добро пожаловать в UDD team!\n"
+            "Для начала подай заявку.",
+
+            reply_markup=kb_apply()
+        )
+
     else:
-        send_msg(chat_id, caption + "\n\n<i>(Фото не найдено)</i>", markup)
 
-# ===== ЛОГИКА ОБРАБОТКИ =====
-def show_cart(chat_id):
-    items = get_cart(chat_id)
-    if not items: return send_msg(chat_id, "🧺 Корзина пуста.", {"inline_keyboard":[[{"text":"◀ Меню","callback_data":"main"}]]})
-    total = sum([ALL_PRODUCTS[i][1] for i in items if i in ALL_PRODUCTS])
-    text = "<b>🧺 Корзина:</b>\n" + "\n".join([f"• {ALL_PRODUCTS[i][0]} — {ALL_PRODUCTS[i][1]}₽" for i in items if i in ALL_PRODUCTS])
-    text += f"\n\n<b>Итого: {total}₽</b>"
-    markup = {"inline_keyboard":[[{"text":"💳 Оплатить","callback_data":"pay"}],[{"text":"🗑 Очистить","callback_data":"clear"},{"text":"◀ Меню","callback_data":"main"}]]}
-    send_msg(chat_id, text, markup)
+        await update.message.reply_text(
+            "Добро пожаловать!",
+            reply_markup=kb_main()
+        )
 
-def handle_update(u):
-    if "message" in u:
-        cid = u["message"]["chat"]["id"]
-        if u["message"].get("text") == "/start":
-            send_msg(cid, "<b>Главное меню:</b>", {"inline_keyboard":[[{"text":"🛍 Магазин","callback_data":"shops"}],[{"text":"🧺 Корзина","callback_data":"cart"}]]})
-    elif "callback_query" in u:
-        cb = u["callback_query"]; cid = cb["message"]["chat"]["id"]; data = cb["data"]
-        api_call("answerCallbackQuery", {"callback_query_id": cb["id"]})
-        
-        if data == "main": send_msg(cid, "Меню:", {"inline_keyboard":[[{"text":"🛍 Магазин","callback_data":"shops"}],[{"text":"🧺 Корзина","callback_data":"cart"}]]})
-        elif data == "shops": 
-            kb = [[{"text":"BDSM","callback_data":"cat_bdsm"}, {"text":"Секрет Счастья","callback_data":"cat_happiness"}],
-                  [{"text":"ПАВстанция","callback_data":"cat_pav"}, {"text":"LIDERA","callback_data":"cat_lidera"}],
-                  [{"text":"Yoda","callback_data":"cat_yoda"}, {"text":"YAMASAKI","callback_data":"cat_yamasaki"}],
-                  [{"text":"ЦУМ","callback_data":"cat_tsum"}],
-                  [{"text":"◀ Назад","callback_data":"main"}]]
-            send_msg(cid, "Выберите магазин:", {"inline_keyboard": kb})
-        elif data == "cart": show_cart(cid)
-        elif data == "clear": clear_cart(cid); send_msg(cid, "🧺 Очищено.", {"inline_keyboard":[[{"text":"◀ Меню","callback_data":"main"}]]})
-        elif data == "pay":
-            items = get_cart(cid); total = sum([ALL_PRODUCTS[i][1] for i in items if i in ALL_PRODUCTS])
-            url = create_invoice(total)
-            if url: send_msg(cid, f"💰 К оплате: <b>{total}₽</b>", {"inline_keyboard":[[{"text":"🚀 Оплатить","url":url}]]})
-        elif data.startswith("cat_"):
-            cat = data.split("_")[1]
-            maps = {"bdsm": BDSM_ITEMS, "happiness": HAPPINESS_ITEMS, "pav": PAV_ITEMS, "lidera": LIDERA_ITEMS, "yoda": YODA_ITEMS, "yamasaki": YAMASAKI_ITEMS, "tsum": TSUM_ITEMS}
-            if cat in maps:
-                kb = [[{"text": v[0], "callback_data": k}] for k, v in maps[cat].items()]
-                kb.append([{"text":"◀ Назад","callback_data":"shops"}])
-                send_msg(cid, "Товары:", {"inline_keyboard": kb})
-        elif data in ALL_PRODUCTS: send_product(cid, data)
-        elif data.startswith("add_"):
-            add_to_cart(cid, data.replace("add_", "")); send_msg(cid, "✅ Товар добавлен!")
+# =========================================================
+# CALLBACKS
+# =========================================================
 
-def main():
-    init_db()
-    print("Бот запущен...")
-    last_id = 0
-    while True:
-        try:
-            res = api_call("getUpdates", {"offset": last_id + 1, "timeout": 20})
-            if res.get("ok"):
-                for u in res["result"]:
-                    last_id = u["update_id"]; handle_update(u)
-        except: pass
-        sleep(1)
+async def callbacks(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
-if __name__ == "__main__": main()
+    query = update.callback_query
+
+    await query.answer()
+
+    user = query.from_user
+
+    data = get_user(user.id)
+
+    # =====================================================
+    # APPLY
+    # =====================================================
+
+    if query.data == "apply":
+
+        await delete_old(query)
+
+        text = (
+            "UDD - Порядок и усилия.\n\n"
+
+            "Мы создали комфортную "
+            "среду для работы и общения.\n\n"
+
+            "Чтобы ее сохранить — "
+            "соблюдайте этические нормы общества."
+        )
+
+        await query.message.chat.send_message(
+            text,
+            reply_markup=kb_next()
+        )
+
+    # =====================================================
+    # RULES
+    # =====================================================
+
+    elif query.data == "next_rules":
+
+        await delete_old(query)
+
+        await query.message.chat.send_message(
+            "Откуда вы о нас узнали?",
+            reply_markup=kb_source()
+        )
+
+    # =====================================================
+    # SOURCE
+    # =====================================================
+
+    elif query.data.startswith("source_"):
+
+        mapping = {
+
+            "source_friend": "От друга",
+            "source_ads": "Реклама",
+            "source_tt": "TT/Shorts/Rels",
+            "source_other": "Другое"
+        }
+
+        data["source"] = mapping[query.data]
+
+        save_data(users)
+
+        await delete_old(query)
+
+        await query.message.chat.send_message(
+            "Есть ли у вас опыт?\n"
+            "Если да — то какой?",
+            reply_markup=kb_experience()
+        )
+
+    # =====================================================
+    # EXPERIENCE
+    # =====================================================
+
+    elif query.data.startswith("exp_"):
+
+        mapping = {
+
+            "exp_2": "~2 года",
+            "exp_1": "~1 год",
+            "exp_6": "~6 месяцев",
+            "exp_0": "Нет опыта"
+        }
+
+        data["experience"] = mapping[query.data]
+
+        save_data(users)
+
+        await delete_old(query)
+
+        await query.message.chat.send_message(
+            "Какое время вы готовы "
+            "уделять работе в день?",
+            reply_markup=kb_time()
+        )
+
+    # =====================================================
+    # TIME
+    # =====================================================
+
+    elif query.data.startswith("time_"):
+
+        mapping = {
+
+            "time_1": "1-3ч",
+            "time_2": "3-6ч",
+            "time_3": "6+ч"
+        }
+
+        data["time"] = mapping[query.data]
+
+        save_data(users)
+
+        await delete_old(query)
+
+        text = (
+            "Ваша заявка:\n\n"
+
+            f"Откуда узнали: "
+            f"{data['source']}\n"
+
+            f"Опыт работы: "
+            f"{data['experience']}\n"
+
+            f"Время для работы: "
+            f"{data['time']}"
+        )
+
+        await query.message.chat.send_message(
+            text,
+            reply_markup=kb_confirm()
+        )
+
+    # =====================================================
+    # CANCEL
+    # =====================================================
+
+    elif query.data == "cancel":
+
+        data["source"] = ""
+        data["experience"] = ""
+        data["time"] = ""
+
+        save_data(users)
+
+        await delete_old(query)
+
+        await query.message.chat.send_message(
+            "Откуда вы о нас узнали?",
+            reply_markup=kb_source()
+        )
+
+    # =====================================================
+    # CONFIRM
+    # =====================================================
+
+    elif query.data == "confirm":
+
+        await delete_old(query)
+
+        loading = await query.message.chat.send_message(
+            "Заявка отправлена..."
+        )
+
+        await asyncio.sleep(7)
+
+        data["registered"] = True
+
+        save_data(users)
+
+        await loading.delete()
+
+        await query.message.chat.send_message(
+            "Добро пожаловать!",
+            reply_markup=kb_main()
+        )
+
+    # =====================================================
+    # MAIN
+    # =====================================================
+
+    elif query.data == "main":
+
+        await delete_old(query)
+
+        await query.message.chat.send_message(
+            "Главное меню",
+            reply_markup=kb_main()
+        )
+
+    # =====================================================
+    # PROFILE
+    # =====================================================
+
+    elif query.data == "profile":
+
+        await delete_old(query)
+
+        username = user.first_name
+
+        telegram_tag = (
+            f"@{user.username}"
+            if user.username
+            else "Нет"
+        )
+
+        text = (
+            f"Твой профиль {username}\n\n"
+
+            f"👨‍🦱 Твой профиль "
+            f"{username}\n\n"
+
+            f"🏆 Статистика:\n"
+
+            f"- Твоя касса: "
+            f"{data['cash']}$\n"
+
+            f"- Кол-во профитов: "
+            f"{data['profits']} профитов\n"
+
+            f"- Кол-во локов: "
+            f"{data['locks']} локов\n"
+
+            f"- Место в топе: N/A\n\n"
+
+            f"⚡️ Информация и настройки:\n"
+
+            f"- Ваш ID: {user.id}\n"
+
+            f"- Твой тег: "
+            f"{telegram_tag}\n"
+
+            f"- Статус: Воркер\n"
+
+            f"- Ранг: N/A"
+        )
+
+        await query.message.chat.send_message(
+            text,
+            reply_markup=kb_back()
+        )
+
+    # =====================================================
+    # SETTINGS
+    # =====================================================
+
+    elif query.data == "settings":
+
+        await delete_old(query)
+
+        await query.message.chat.send_message(
+            "Выберите нужный пункт",
+            reply_markup=kb_settings()
+        )
+
+    # =====================================================
+    # RANKS
+    # =====================================================
+
+    elif query.data == "ranks":
+
+        await delete_old(query)
+
+        text = (
+            f"💰 Твоя касса: "
+            f"{data['cash']}$\n\n"
+
+            f"> 🧑‍🎓 Студент - от 0$\n"
+            f"> 🥇 Чемпион - от 1 000$\n"
+            f"> 🐺 Волк - от 3 000$\n"
+            f"> 💪 Легенда - от 5 000$\n"
+            f"> 🏆 Начальник - от 10 000$"
+        )
+
+        await query.message.chat.send_message(
+            text,
+            reply_markup=kb_back()
+        )
+
+    # =====================================================
+    # MODE
+    # =====================================================
+
+    elif query.data == "mode":
+
+        await delete_old(query)
+
+        text = (
+            "Выберите режим:\n\n"
+
+            f"Сейчас: "
+            f"{data['mode']}\n\n"
+
+            "Локаются все устройства "
+            "от выбранной модели."
+        )
+
+        await query.message.chat.send_message(
+            text,
+            reply_markup=kb_mode()
+        )
+
+    elif query.data in [
+        "mode11",
+        "mode12",
+        "mode13"
+    ]:
+
+        mapping = {
+
+            "mode11": "От 11",
+            "mode12": "От 12",
+            "mode13": "От 13"
+        }
+
+        data["mode"] = mapping[query.data]
+
+        save_data(users)
+
+        await delete_old(query)
+
+        text = (
+            "Выберите режим:\n\n"
+
+            f"Сейчас: "
+            f"{data['mode']}\n\n"
+
+            "Локаются все устройства "
+            "от выбранной модели."
+        )
+
+        await query.message.chat.send_message(
+            text,
+            reply_markup=kb_mode()
+        )
+
+    # =====================================================
+    # TAG
+    # =====================================================
+
+    elif query.data == "mytag":
+
+        await delete_old(query)
+
+        await query.message.chat.send_message(
+            f"Ваш тег: {data['tag']}",
+            reply_markup=kb_back()
+        )
+
+    # =====================================================
+    # ABOUT
+    # =====================================================
+
+    elif query.data == "about":
+
+        await delete_old(query)
+
+        text = (
+            "ИНФОРМАЦИЯ О ПРОЕКТЕ "
+            "UDD TEAM\n\n"
+
+            "Мы работаем с 01.03.2026,\n"
+
+            "за это время сделаны "
+            "631 профитов "
+            "на сумму 55,374$\n\n"
+
+            "Выплаты\n"
+
+            "- Обработка: 80%\n"
+            "- Сервисы: 50%\n\n"
+
+            "Состояние работы бота: Ворк!"
+        )
+
+        await query.message.chat.send_message(
+            text,
+            reply_markup=kb_back()
+        )
+
+    # =====================================================
+    # APPLE ID
+    # =====================================================
+
+    elif query.data == "apple":
+
+        await delete_old(query)
+
+        loading = await query.message.chat.send_message(
+            "Получаем APPLE ID..."
+        )
+
+        result = await get_apple_id()
+
+        await loading.delete()
+
+        if isinstance(result, str):
+
+            await query.message.chat.send_message(
+                result,
+                reply_markup=kb_back()
+            )
+
+        else:
+
+            await context.bot.forward_message(
+
+                chat_id=query.message.chat.id,
+
+                from_chat_id=result.chat_id,
+
+                message_id=result.id
+            )
+
+# =========================================================
+# TELETHON START
+# =========================================================
+
+def start_userbot():
+
+    loop = asyncio.new_event_loop()
+
+    asyncio.set_event_loop(loop)
+
+    userbot.start()
+
+    print("USERBOT STARTED")
+
+    userbot.run_until_disconnected()
+
+# =========================================================
+# MAIN
+# =========================================================
+
+if __name__ == "__main__":
+
+    threading.Thread(
+        target=start_userbot,
+        daemon=True
+    ).start()
+
+    print("BOT STARTED")
+
+    app = Application.builder().token(
+        BOT_TOKEN
+    ).build()
+
+    app.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            callbacks
+        )
+    )
+
+    app.run_polling()
